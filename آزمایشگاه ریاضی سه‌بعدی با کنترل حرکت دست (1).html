@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>آزمایشگاه ریاضی سه‌بعدی با کنترل حرکت دست</title>
+
+  <!-- Fonts & Libraries (Exact, query-free CDN URLs) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+  <style data-app-style="true">
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #070b14;
+      color: #f1f5f9;
+      font-family: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    }
+    .ltr-num {
+      direction: ltr;
+      unicode-bidi: isolate;
+      font-variant-numeric: tabular-nums;
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .glass-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      transition: all 0.18s ease;
+    }
+    .glass-btn:hover {
+      background: rgba(51, 65, 85, 0.9);
+      border-color: rgba(56, 189, 248, 0.5);
+    }
+    .glass-btn.active {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(99, 102, 241, 0.35));
+      border-color: #38bdf8;
+      color: #e0f2fe;
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.28);
+    }
+    #three-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      touch-action: none;
+    }
+    /* Custom thin scrollbar for panels */
+    .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 999px; }
+
+    /* Hand cursor ring */
+    #hand-cursor {
+      position: fixed;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2.5px solid #38bdf8;
+      background: rgba(56, 189, 248, 0.18);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 45;
+      display: none;
+      transition: width 0.12s, height 0.12s, border-color 0.12s, background 0.12s;
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.6);
+    }
+    #hand-cursor.pinching {
+      width: 22px;
+      height: 22px;
+      border-color: #10b981;
+      background: rgba(16, 185, 129, 0.45);
+      box-shadow: 0 0 22px rgba(16, 185, 129, 0.85);
+    }
+    #hand-cursor.palm {
+      width: 48px;
+      height: 48px;
+      border-color: #f59e0b;
+      background: rgba(245, 158, 11, 0.18);
+      box-shadow: 0 0 22px rgba(245, 158, 11, 0.7);
+    }
+  </style>
+</head>
+<body class="select-none">
+
+  <!-- 3D WebGL Viewport -->
+  <div id="three-container" class="fixed inset-0 z-0"></div>
+
+  <!-- Virtual Hand Cursor -->
+  <div id="hand-cursor"></div>
+
+  <!-- Top Header Bar -->
+  <header class="fixed top-2 left-2 right-2 z-30 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- Brand & Mode Title -->
+    <div class="glass-panel rounded-2xl px-3 py-2 flex items-center gap-2.5 pointer-events-auto shadow-lg">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-md shrink-0">
+        <i data-lucide="box" class="w-4 h-4 text-white"></i>
+      </div>
+      <div class="leading-tight">
+        <h1 class="text-xs sm:text-sm font-bold text-slate-100">آزمایشگاه ریاضی با حرکت دست</h1>
+        <p id="gesture-status-text" class="text-[11px] text-sky-300">حالت لمس / ماوس فعال است</p>
+      </div>
+    </div>
+
+    <!-- Camera & Quick Controls -->
+    <div class="flex items-center gap-1.5 pointer-events-auto">
+      <button id="btn-toggle-camera" class="glass-btn rounded-xl px-3 py-2 text-xs font-semibold flex items-center gap-1.5 text-slate-100 shadow-lg">
+        <i data-lucide="camera" class="w-4 h-4 text-sky-400"></i>
+        <span id="cam-btn-label">دوربین روشن</span>
+      </button>
+      <button id="btn-switch-camera" class="glass-btn rounded-xl p-2 text-xs text-slate-200 shadow-lg hidden" title="تعویض دوربین جلو و پشت">
+        <i data-lucide="refresh-cw" class="w-4 h-4 text-emerald-400"></i>
+      </button>
+      <button id="btn-toggle-info" class="glass-btn rounded-xl p-2 text-xs text-slate-200 shadow-lg" title="اطلاعات ریاضی و فرمول‌ها">
+        <i data-lucide="sigma" class="w-4 h-4 text-amber-400"></i>
+      </button>
+      <button id="btn-toggle-help" class="glass-btn rounded-xl p-2 text-xs text-slate-200 shadow-lg" title="راهنمای حرکات دست">
+        <i data-lucide="hand" class="w-4 h-4 text-violet-400"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Camera Picture-in-Picture (PiP) with Hand Skeleton -->
+  <div id="pip-wrapper" class="fixed top-16 left-2 sm:left-3 z-20 w-32 h-24 sm:w-44 sm:h-32 rounded-2xl overflow-hidden glass-panel shadow-2xl hidden">
+    <video id="input-video" class="fixed w-px h-px opacity-0 pointer-events-none" playsinline autoplay muted></video>
+    <canvas id="hand-overlay" class="w-full h-full object-cover"></canvas>
+    <div id="gesture-pill" class="absolute bottom-1 right-1 left-1 text-center text-[10px] font-semibold bg-slate-950/75 text-sky-300 rounded-lg px-1.5 py-0.5 truncate">
+      در حال شناسایی دست...
+    </div>
+  </div>
+
+  <!-- Right/Side Math Info & Properties Drawer -->
+  <aside id="math-drawer" class="fixed top-20 sm:top-16 right-2 sm:right-3 z-20 w-56 sm:w-72 max-h-[52vh] sm:max-h-[58vh] overflow-y-auto custom-scroll glass-panel rounded-2xl p-3 shadow-2xl space-y-3 transition-all duration-200">
+    <div class="flex items-center justify-between border-b border-slate-700/60 pb-2">
+      <div class="flex items-center gap-1.5">
+        <i data-lucide="calculator" class="w-4 h-4 text-amber-400"></i>
+        <span class="text-xs font-bold text-slate-100">مشخصات ریاضی شکل</span>
+      </div>
+      <span id="shape-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">مکعب</span>
+    </div>
+
+    <!-- Euler & Geometry Stats -->
+    <div class="grid grid-cols-3 gap-1.5 text-center">
+      <div class="bg-slate-900/70 rounded-xl p-1.5 border border-slate-800">
+        <div class="text-[10px] text-slate-400">رأس (V)</div>
+        <div id="stat-v" class="text-sm font-bold text-sky-400 ltr-num">8</div>
+      </div>
+      <div class="bg-slate-900/70 rounded-xl p-1.5 border border-slate-800">
+        <div class="text-[10px] text-slate-400">یال (E)</div>
+        <div id="stat-e" class="text-sm font-bold text-emerald-400 ltr-num">12</div>
+      </div>
+      <div class="bg-slate-900/70 rounded-xl p-1.5 border border-slate-800">
+        <div class="text-[10px] text-slate-400">وجه (F)</div>
+        <div id="stat-f" class="text-sm font-bold text-amber-400 ltr-num">6</div>
+      </div>
+    </div>
+
+    <div class="bg-slate-900/60 rounded-xl p-2 border border-slate-800 space-y-1 text-[11px]">
+      <div class="flex justify-between">
+        <span class="text-slate-400">رابطه اویلر:</span>
+        <span id="stat-euler" class="text-violet-300 font-semibold ltr-num">V - E + F = 2</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">حجم:</span>
+        <span id="stat-volume" class="text-emerald-300 font-semibold ltr-num">8.00</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">مساحت کل:</span>
+        <span id="stat-area" class="text-sky-300 font-semibold ltr-num">24.00</span>
+      </div>
+    </div>
+
+    <!-- Scale / Explode / 4D W-Rotation Controls -->
+    <div class="space-y-2 pt-1">
+      <div>
+        <div class="flex justify-between text-[11px] mb-1">
+          <span class="text-slate-300">جداسازی قطعات (انفجار)</span>
+          <span id="explode-val" class="text-amber-300 ltr-num">0%</span>
+        </div>
+        <input id="slider-explode" type="range" min="0" max="100" value="0" class="w-full accent-amber-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+      </div>
+
+      <div>
+        <div class="flex justify-between text-[11px] mb-1">
+          <span class="text-slate-300">اندازه ضلع (a)</span>
+          <span id="scale-val" class="text-sky-300 ltr-num">2.0</span>
+        </div>
+        <input id="slider-scale" type="range" min="10" max="35" value="20" class="w-full accent-sky-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+      </div>
+
+      <div id="tesseract-w-control" class="hidden">
+        <div class="flex justify-between text-[11px] mb-1">
+          <span class="text-violet-300">چرخش در بُعد چهارم (W)</span>
+          <span id="w-val" class="text-violet-300 ltr-num">0°</span>
+        </div>
+        <input id="slider-w" type="range" min="0" max="360" value="0" class="w-full accent-violet-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+      </div>
+    </div>
+
+    <!-- Drawn Vectors / Axes List -->
+    <div id="vectors-section" class="border-t border-slate-700/60 pt-2 space-y-1.5">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-bold text-slate-200">بردارها و محورهای رسم‌شده</span>
+        <button id="btn-clear-vectors" class="text-[10px] text-rose-400 hover:text-rose-300">پاک کردن</button>
+      </div>
+      <div id="vectors-list" class="space-y-1 max-h-24 overflow-y-auto custom-scroll text-[11px] text-slate-400">
+        <p class="text-[10px] text-slate-500">در حالت «رسم محور»، با نیشگون دست یا کشیدن روی صفحه محور رسم کنید.</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Bottom Control Dock -->
+  <footer class="fixed bottom-2 left-2 right-2 z-30 flex flex-col items-center gap-2 pointer-events-none">
+    <!-- Sub-bar: Shape Selector (visible when Shape / Explode mode active) -->
+    <div id="shape-bar" class="glass-panel rounded-2xl px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto max-w-full custom-scroll pointer-events-auto shadow-xl">
+      <button data-shape="cube" class="shape-btn glass-btn active rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap">مکعب</button>
+      <button data-shape="tetrahedron" class="shape-btn glass-btn rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap">چهاروجهی</button>
+      <button data-shape="pyramid" class="shape-btn glass-btn rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap">هرم مربعی</button>
+      <button data-shape="octahedron" class="shape-btn glass-btn rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap">هشت‌وجهی</button>
+      <button data-shape="prism" class="shape-btn glass-btn rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap">منشور شش‌ضلعی</button>
+      <button data-shape="tesseract" class="shape-btn glass-btn rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap text-violet-300">ابر-مکعب ۴بعدی</button>
+    </div>
+
+    <!-- Main Mode Bar -->
+    <div class="glass-panel rounded-2xl px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto max-w-full custom-scroll pointer-events-auto shadow-2xl">
+      <button data-mode="rotate" class="mode-btn glass-btn active rounded-xl px-3 py-2 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="orbit" class="w-4 h-4 text-sky-400"></i>
+        <span>چرخش و بررسی</span>
+      </button>
+      <button data-mode="axis" class="mode-btn glass-btn rounded-xl px-3 py-2 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="move-3d" class="w-4 h-4 text-emerald-400"></i>
+        <span>رسم محور و بردار</span>
+      </button>
+      <button data-mode="separate" class="mode-btn glass-btn rounded-xl px-3 py-2 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="layers" class="w-4 h-4 text-amber-400"></i>
+        <span>جداسازی تکه‌ها</span>
+      </button>
+      <button id="btn-toggle-axes" class="glass-btn active rounded-xl px-2.5 py-2 text-xs font-semibold flex items-center gap-1 whitespace-nowrap" title="نمایش/مخفی کردن دستگاه مختصات">
+        <i data-lucide="axis-3d" class="w-4 h-4 text-rose-400"></i>
+        <span class="hidden sm:inline">دستگاه مختصات</span>
+      </button>
+      <button id="btn-reset-scene" class="glass-btn rounded-xl px-2.5 py-2 text-xs font-semibold flex items-center gap-1 whitespace-nowrap" title="بازنشانی قطعات و زاویه">
+        <i data-lucide="rotate-ccw" class="w-4 h-4 text-slate-300"></i>
+        <span class="hidden sm:inline">بازنشانی</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Gesture Help Modal -->
+  <div id="help-modal" class="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-slate-700">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+          <i data-lucide="hand" class="w-5 h-5 text-violet-400"></i>
+          راهنمای کنترل با حرکت دست
+        </h2>
+        <button id="btn-close-help" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-2.5 text-xs leading-relaxed">
+        <div class="bg-slate-900/75 rounded-2xl p-3 border border-slate-800 flex items-start gap-3">
+          <span class="text-xl">☝️</span>
+          <div>
+            <div class="font-bold text-sky-300">یک انگشت بالا (اشاره)</div>
+            <p class="text-slate-300">حرکت نشانگر روی صفحه و چرخش نرم شکل سه‌بعدی در حالت «چرخش و بررسی».</p>
+          </div>
+        </div>
+        <div class="bg-slate-900/75 rounded-2xl p-3 border border-slate-800 flex items-start gap-3">
+          <span class="text-xl">🤏</span>
+          <div>
+            <div class="font-bold text-emerald-300">نیشگون (شست + اشاره به هم چسبیده)</div>
+            <p class="text-slate-300">در حالت «رسم محور» بردار جدید می‌کشد؛ در حالت «جداسازی تکه‌ها» هر وجه را می‌گیرد و از شکل جدا می‌کند!</p>
+          </div>
+        </div>
+        <div class="bg-slate-900/75 rounded-2xl p-3 border border-slate-800 flex items-start gap-3">
+          <span class="text-xl">🖐️</span>
+          <div>
+            <div class="font-bold text-amber-300">کف دست باز (۵ انگشت باز)</div>
+            <p class="text-slate-300">هرچه انگشتان را بیشتر باز کنید، تمام تکه‌های شکل چندبعدی به بیرون باز (منفجر) می‌شوند.</p>
+          </div>
+        </div>
+        <div class="bg-slate-900/75 rounded-2xl p-3 border border-slate-800 flex items-start gap-3">
+          <span class="text-xl">✊</span>
+          <div>
+            <div class="font-bold text-rose-300">مشت بسته</div>
+            <p class="text-slate-300">تکه‌های جدا شده را دوباره به هم می‌چسباند و شکل را جمع می‌کند.</p>
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-ok-help" class="w-full py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-bold shadow-lg">
+        متوجه شدم، بریم آزمایشگاه!
+      </button>
+    </div>
+  </div>
+
+  <!-- Camera Permission / Preview Notice Modal -->
+  <div id="camera-blocked-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="glass-panel rounded-3xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-slate-700">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2">
+          <i data-lucide="camera-off" class="w-5 h-5 text-rose-400"></i>
+          <span id="cam-modal-title">عدم دسترسی به دوربین</span>
+        </h2>
+        <button id="btn-close-cam-modal" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <p id="cam-modal-desc" class="text-xs leading-relaxed text-slate-300"></p>
+      <div id="cam-modal-tip" class="bg-slate-900/75 rounded-2xl p-3 border border-slate-800 text-xs text-slate-300 space-y-1.5"></div>
+      <div id="cam-modal-err" class="text-[11px] text-rose-300/90 ltr-num bg-rose-950/30 border border-rose-900/40 rounded-xl px-2.5 py-1.5 hidden"></div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <button id="btn-retry-camera" class="flex-1 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-bold shadow-lg flex items-center justify-center gap-1.5">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>تلاش مجدد دوربین</span>
+        </button>
+        <button id="btn-download-html" class="flex-1 py-2.5 px-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold shadow-lg flex items-center justify-center gap-1.5">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>دانلود فایل سایت (HTML)</span>
+        </button>
+      </div>
+      <button id="btn-continue-touch" class="w-full py-2 px-3 rounded-2xl glass-btn text-slate-200 text-xs font-bold">
+        ادامه با لمس و ماوس
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2 rounded-2xl text-xs font-semibold text-sky-200 shadow-xl hidden transition-opacity duration-200"></div>
+
+  <script>
+    // =========================================================================
+    // 1. STATE & CONSTANTS
+    // =========================================================================
+    const state = {
+      mode: 'rotate', // 'rotate' | 'axis' | 'separate'
+      shape: 'cube',  // 'cube' | 'tetrahedron' | 'pyramid' | 'octahedron' | 'prism' | 'tesseract'
+      showAxes: true,
+      explodeFactor: 0, // 0..1
+      scale: 2.0,
+      wAngle: 0, // 4D rotation angle in radians
+      cameraActive: false,
+      facingMode: 'user', // 'user' | 'environment'
+      gesture: 'none', // 'point' | 'pinch' | 'palm' | 'fist' | 'none'
+      cursorX: 0.5, // normalized 0..1
+      cursorY: 0.5,
+      smoothX: 0.5,
+      smoothY: 0.5,
+      vectors: [],
+      isDrawingVector: false,
+      drawStartPoint: null,
+      previewVectorObj: null,
+      grabbedPiece: null,
+      grabPlane: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+      grabOffset: new THREE.Vector3(),
+      infoOpen: true
+    };
+
+    const SHAPE_META = {
+      cube: { name: 'مکعب', v: 8, e: 12, f: 6, euler: '8 - 12 + 6 = 2' },
+      tetrahedron: { name: 'چهاروجهی منتظم', v: 4, e: 6, f: 4, euler: '4 - 6 + 4 = 2' },
+      pyramid: { name: 'هرم مربعی', v: 5, e: 8, f: 5, euler: '5 - 8 + 5 = 2' },
+      octahedron: { name: 'هشت‌وجهی منتظم', v: 6, e: 12, f: 8, euler: '6 - 12 + 8 = 2' },
+      prism: { name: 'منشور شش‌ضلعی', v: 12, e: 18, f: 8, euler: '12 - 18 + 8 = 2' },
+      tesseract: { name: 'ابر-مکعب ۴بعدی', v: 16, e: 32, f: 24, euler: 'χ(4D) = V-E+F-C = 0' }
+    };
+
+    const PIECE_COLORS = [
+      0x38bdf8, 0x34d399, 0xfbbf24, 0xf472b6,
+      0xa78bfa, 0xfb7185, 0x2dd4bf, 0x60a5fa
+    ];
+
+    // =========================================================================
+    // 2. THREE.JS SCENE SETUP
+    // =========================================================================
+    const container = document.getElementById('three-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x070b14);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(5.2, 4.2, 6.5);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.85);
+    dirLight1.position.set(6, 10, 7);
+    scene.add(dirLight1);
+    const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.4);
+    dirLight2.position.set(-6, -4, -5);
+    scene.add(dirLight2);
+
+    // Groups
+    const axesGroup = new THREE.Group();
+    const shapeGroup = new THREE.Group();
+    const vectorsGroup = new THREE.Group();
+    scene.add(axesGroup);
+    scene.add(shapeGroup);
+    scene.add(vectorsGroup);
+
+    // Orbit camera spherical coordinates
+    const orbit = { theta: Math.PI / 4, phi: Math.PI / 3, radius: 9.0 };
+    function updateCameraOrbit() {
+      orbit.phi = Math.max(0.15, Math.min(Math.PI - 0.15, orbit.phi));
+      orbit.radius = Math.max(3.5, Math.min(18, orbit.radius));
+      camera.position.x = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
+      camera.position.y = orbit.radius * Math.cos(orbit.phi);
+      camera.position.z = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
+      camera.lookAt(0, 0, 0);
+    }
+    updateCameraOrbit();
+
+    // =========================================================================
+    // 3. COORDINATE AXES & LABELS
+    // =========================================================================
+    function makeTextSprite(text, color) {
+      const c = document.createElement('canvas');
+      c.width = 128; c.height = 64;
+      const ctx = c.getContext('2d');
+      ctx.font = 'bold 34px Vazirmatn, sans-serif';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 64, 32);
+      const tex = new THREE.CanvasTexture(c);
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(0.9, 0.45, 1);
+      return sprite;
+    }
+
+    function buildCoordinateAxes() {
+      while (axesGroup.children.length) axesGroup.remove(axesGroup.children[0]);
+
+      const grid = new THREE.GridHelper(10, 10, 0x1e293b, 0x0f172a);
+      axesGroup.add(grid);
+
+      const axisLen = 4.5;
+      const axesDef = [
+        { dir: new THREE.Vector3(1, 0, 0), color: 0xf43f5e, label: '+X', hex: '#fb7185' },
+        { dir: new THREE.Vector3(0, 1, 0), color: 0x10b981, label: '+Y', hex: '#34d399' },
+        { dir: new THREE.Vector3(0, 0, 1), color: 0x38bdf8, label: '+Z', hex: '#38bdf8' }
+      ];
+
+      axesDef.forEach(a => {
+        const arrow = new THREE.ArrowHelper(a.dir, new THREE.Vector3(0, 0, 0), axisLen, a.color, 0.35, 0.18);
+        axesGroup.add(arrow);
+        // Negative dashed/thin line
+        const negGeo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          a.dir.clone().multiplyScalar(-axisLen * 0.8)
+        ]);
+        const negMat = new THREE.LineBasicMaterial({ color: a.color, transparent: true, opacity: 0.35 });
+        axesGroup.add(new THREE.Line(negGeo, negMat));
+
+        const lbl = makeTextSprite(a.label, a.hex);
+        lbl.position.copy(a.dir.clone().multiplyScalar(axisLen + 0.4));
+        axesGroup.add(lbl);
+      });
+
+      // Origin sphere
+      const origin = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0xf8fafc })
+      );
+      axesGroup.add(origin);
+    }
+    buildCoordinateAxes();
+
+    // =========================================================================
+    // 4. SEPARABLE 3D & 4D GEOMETRY BUILDER
+    // =========================================================================
+    let currentPieces = []; // { mesh, normal, customOffset, guideLine }
+    let tesseractData = null;
+
+    function createFaceMesh(vertices3D, color, normalVec) {
+      // Build triangulated polygon face with thickness/double-sided + glowing edge
+      const geom = new THREE.BufferGeometry();
+      const positions = [];
+      for (let i = 1; i < vertices3D.length - 1; i++) {
+        positions.push(
+          vertices3D[0].x, vertices3D[0].y, vertices3D[0].z,
+          vertices3D[i].x, vertices3D[i].y, vertices3D[i].z,
+          vertices3D[i + 1].x, vertices3D[i + 1].y, vertices3D[i + 1].z
+        );
+      }
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.computeVertexNormals();
+
+      const mat = new THREE.MeshPhongMaterial({
+        color,
+        transparent: true,
+        opacity: 0.84,
+        side: THREE.DoubleSide,
+        shininess: 70
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+
+      // Add crisp border outline
+      const borderPts = [...vertices3D, vertices3D[0]];
+      const edgeGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+      mesh.add(new THREE.Line(edgeGeo, edgeMat));
+
+      // Guide line from origin to piece
+      const guideGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]);
+      const guideMat = new THREE.LineDashedMaterial({ color: 0x94a3b8, dashSize: 0.12, gapSize: 0.08, transparent: true, opacity: 0.45 });
+      const guideLine = new THREE.Line(guideGeo, guideMat);
+      shapeGroup.add(guideLine);
+      shapeGroup.add(mesh);
+
+      const piece = {
+        mesh,
+        normal: normalVec.clone().normalize(),
+        customOffset: new THREE.Vector3(0, 0, 0),
+        guideLine,
+        baseColor: color
+      };
+      mesh.userData.piece = piece;
+      currentPieces.push(piece);
+    }
+
+    function buildShape() {
+      while (shapeGroup.children.length) shapeGroup.remove(shapeGroup.children[0]);
+      currentPieces = [];
+      tesseractData = null;
+
+      const s = state.scale / 2; // half-size
+      const a = state.scale;
+
+      document.getElementById('tesseract-w-control').classList.toggle('hidden', state.shape !== 'tesseract');
+
+      if (state.shape === 'cube') {
+        const faces = [
+          { n: [1, 0, 0], v: [[s,-s,-s],[s,s,-s],[s,s,s],[s,-s,s]] },
+          { n: [-1, 0, 0], v: [[-s,-s,s],[-s,s,s],[-s,s,-s],[-s,-s,-s]] },
+          { n: [0, 1, 0], v: [[-s,s,-s],[-s,s,s],[s,s,s],[s,s,-s]] },
+          { n: [0, -1, 0], v: [[-s,-s,s],[-s,-s,-s],[s,-s,-s],[s,-s,s]] },
+          { n: [0, 0, 1], v: [[-s,-s,s],[s,-s,s],[s,s,s],[-s,s,s]] },
+          { n: [0, 0, -1], v: [[s,-s,-s],[-s,-s,-s],[-s,s,-s],[s,s,-s]] }
+        ];
+        faces.forEach((f, idx) => {
+          createFaceMesh(
+            f.v.map(p => new THREE.Vector3(p[0], p[1], p[2])),
+            PIECE_COLORS[idx % PIECE_COLORS.length],
+            new THREE.Vector3(...f.n)
+          );
+        });
+      } else if (state.shape === 'tetrahedron') {
+        const r = s * 1.35;
+        const pts = [
+          new THREE.Vector3(r, r, r),
+          new THREE.Vector3(-r, -r, r),
+          new THREE.Vector3(-r, r, -r),
+          new THREE.Vector3(r, -r, -r)
+        ];
+        const tris = [[0,1,2], [0,3,1], [0,2,3], [1,3,2]];
+        tris.forEach((t, idx) => {
+          const verts = t.map(i => pts[i]);
+          const center = new THREE.Vector3().add(verts[0]).add(verts[1]).add(verts[2]).divideScalar(3);
+          createFaceMesh(verts, PIECE_COLORS[idx % PIECE_COLORS.length], center);
+        });
+      } else if (state.shape === 'pyramid') {
+        const h = s * 1.4;
+        const apex = new THREE.Vector3(0, h, 0);
+        const base = [
+          new THREE.Vector3(-s, -s * 0.7, -s),
+          new THREE.Vector3(s, -s * 0.7, -s),
+          new THREE.Vector3(s, -s * 0.7, s),
+          new THREE.Vector3(-s, -s * 0.7, s)
+        ];
+        createFaceMesh(base, PIECE_COLORS[0], new THREE.Vector3(0, -1, 0));
+        for (let i = 0; i < 4; i++) {
+          const v1 = base[i], v2 = base[(i + 1) % 4];
+          const c = new THREE.Vector3().add(v1).add(v2).add(apex).divideScalar(3);
+          createFaceMesh([v1, v2, apex], PIECE_COLORS[(i + 1) % PIECE_COLORS.length], c);
+        }
+      } else if (state.shape === 'octahedron') {
+        const r = s * 1.45;
+        const top = new THREE.Vector3(0, r, 0), bot = new THREE.Vector3(0, -r, 0);
+        const eq = [
+          new THREE.Vector3(r, 0, 0), new THREE.Vector3(0, 0, r),
+          new THREE.Vector3(-r, 0, 0), new THREE.Vector3(0, 0, -r)
+        ];
+        for (let i = 0; i < 4; i++) {
+          const a1 = eq[i], a2 = eq[(i + 1) % 4];
+          const c1 = new THREE.Vector3().add(a1).add(a2).add(top).divideScalar(3);
+          createFaceMesh([a1, a2, top], PIECE_COLORS[i % PIECE_COLORS.length], c1);
+          const c2 = new THREE.Vector3().add(a2).add(a1).add(bot).divideScalar(3);
+          createFaceMesh([a2, a1, bot], PIECE_COLORS[(i + 4) % PIECE_COLORS.length], c2);
+        }
+      } else if (state.shape === 'prism') {
+        const n = 6, r = s * 1.15, h = s;
+        const topPts = [], botPts = [];
+        for (let i = 0; i < n; i++) {
+          const ang = (i / n) * Math.PI * 2;
+          topPts.push(new THREE.Vector3(Math.cos(ang) * r, h, Math.sin(ang) * r));
+          botPts.push(new THREE.Vector3(Math.cos(ang) * r, -h, Math.sin(ang) * r));
+        }
+        createFaceMesh(topPts, PIECE_COLORS[0], new THREE.Vector3(0, 1, 0));
+        createFaceMesh([...botPts].reverse(), PIECE_COLORS[1], new THREE.Vector3(0, -1, 0));
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n;
+          const mid = new THREE.Vector3().add(topPts[i]).add(topPts[j]).divideScalar(2);
+          mid.y = 0;
+          createFaceMesh([botPts[i], botPts[j], topPts[j], topPts[i]], PIECE_COLORS[(i + 2) % PIECE_COLORS.length], mid);
+        }
+      } else if (state.shape === 'tesseract') {
+        buildTesseract();
+      }
+
+      updateMathStats(a);
+      applyPieceOffsets();
+    }
+
+    function buildTesseract() {
+      // 16 vertices in 4D: (+-1, +-1, +-1, +-1)
+      const verts4D = [];
+      for (let i = 0; i < 16; i++) {
+        verts4D.push([
+          (i & 1) ? 1 : -1,
+          (i & 2) ? 1 : -1,
+          (i & 4) ? 1 : -1,
+          (i & 8) ? 1 : -1
+        ]);
+      }
+      const edges = [];
+      for (let i = 0; i < 16; i++) {
+        for (let j = i + 1; j < 16; j++) {
+          const diff = i ^ j;
+          if (diff && (diff & (diff - 1)) === 0) edges.push([i, j]);
+        }
+      }
+      // Build 2 separable 3D cells (inner/outer cube frames) + connecting struts
+      const lineGeo = new THREE.BufferGeometry();
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xa78bfa, linewidth: 2 });
+      const lines = new THREE.LineSegments(lineGeo, lineMat);
+      shapeGroup.add(lines);
+
+      const nodeMeshes = verts4D.map((_, idx) => {
+        const m = new THREE.Mesh(
+          new THREE.SphereGeometry(0.11, 12, 12),
+          new THREE.MeshPhongMaterial({ color: idx < 8 ? 0x38bdf8 : 0xf472b6 })
+        );
+        shapeGroup.add(m);
+        return m;
+      });
+
+      tesseractData = { verts4D, edges, lines, nodeMeshes };
+      updateTesseractGeometry();
+    }
+
+    function updateTesseractGeometry() {
+      if (!tesseractData) return;
+      const { verts4D, edges, lines, nodeMeshes } = tesseractData;
+      const cosW = Math.cos(state.wAngle), sinW = Math.sin(state.wAngle);
+      const scale = state.scale * 0.95;
+      const explodePush = state.explodeFactor * 1.4;
+
+      const proj3D = verts4D.map(v => {
+        // Rotate in XW plane
+        const x = v[0] * cosW - v[3] * sinW;
+        const w = v[0] * sinW + v[3] * cosW;
+        const y = v[1], z = v[2];
+        const dist = 2.6;
+        const factor = dist / (dist - w);
+        const vec = new THREE.Vector3(x * factor * scale, y * factor * scale, z * factor * scale);
+        if (explodePush > 0) {
+          vec.add(vec.clone().normalize().multiplyScalar(explodePush * (v[3] > 0 ? 1 : 0.2)));
+        }
+        return vec;
+      });
+
+      nodeMeshes.forEach((m, i) => m.position.copy(proj3D[i]));
+      const posArr = new Float32Array(edges.length * 6);
+      edges.forEach((e, idx) => {
+        const p1 = proj3D[e[0]], p2 = proj3D[e[1]];
+        posArr[idx * 6] = p1.x; posArr[idx * 6 + 1] = p1.y; posArr[idx * 6 + 2] = p1.z;
+        posArr[idx * 6 + 3] = p2.x; posArr[idx * 6 + 4] = p2.y; posArr[idx * 6 + 5] = p2.z;
+      });
+      lines.geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+      lines.geometry.computeBoundingSphere();
+    }
+
+    function applyPieceOffsets() {
+      if (state.shape === 'tesseract') {
+        updateTesseractGeometry();
+        return;
+      }
+      const dist = state.explodeFactor * 2.3;
+      currentPieces.forEach(p => {
+        const target = p.normal.clone().multiplyScalar(dist).add(p.customOffset);
+        p.mesh.position.copy(target);
+
+        const posAttr = p.guideLine.geometry.attributes.position;
+        posAttr.setXYZ(0, 0, 0, 0);
+        posAttr.setXYZ(1, target.x, target.y, target.z);
+        posAttr.needsUpdate = true;
+        p.guideLine.computeLineDistances();
+        p.guideLine.visible = target.lengthSq() > 0.01;
+      });
+    }
+
+    function updateMathStats(a) {
+      const meta = SHAPE_META[state.shape];
+      document.getElementById('shape-badge').textContent = meta.name;
+      document.getElementById('stat-v').textContent = meta.v;
+      document.getElementById('stat-e').textContent = meta.e;
+      document.getElementById('stat-f').textContent = meta.f;
+      document.getElementById('stat-euler').textContent = meta.euler;
+
+      let vol = 0, area = 0;
+      if (state.shape === 'cube') {
+        vol = Math.pow(a, 3);
+        area = 6 * a * a;
+      } else if (state.shape === 'tetrahedron') {
+        const edge = a * Math.sqrt(2);
+        vol = Math.pow(edge, 3) / (6 * Math.SQRT2);
+        area = Math.sqrt(3) * edge * edge;
+      } else if (state.shape === 'pyramid') {
+        const h = a * 0.7;
+        vol = (a * a * h) / 3;
+        const slant = Math.sqrt((a / 2) ** 2 + h ** 2);
+        area = a * a + 2 * a * slant;
+      } else if (state.shape === 'octahedron') {
+        const edge = a * 1.02;
+        vol = (Math.SQRT2 / 3) * Math.pow(edge, 3);
+        area = 2 * Math.sqrt(3) * edge * edge;
+      } else if (state.shape === 'prism') {
+        const r = a * 0.575;
+        const baseA = (3 * Math.sqrt(3) / 2) * r * r;
+        vol = baseA * a;
+        area = 2 * baseA + 6 * r * a;
+      } else {
+        vol = Math.pow(a, 4);
+        area = 24 * a * a;
+      }
+      document.getElementById('stat-volume').textContent = vol.toFixed(2);
+      document.getElementById('stat-area').textContent = area.toFixed(2);
+    }
+
+    // =========================================================================
+    // 5. VECTOR / AXIS DRAWING ENGINE
+    // =========================================================================
+    function createVectorArrow(start, end, color = 0xfbbf24) {
+      const dir = new THREE.Vector3().subVectors(end, start);
+      const len = dir.length();
+      if (len < 0.15) return null;
+      const arrow = new THREE.ArrowHelper(dir.clone().normalize(), start, len, color, 0.28, 0.14);
+      vectorsGroup.add(arrow);
+      return arrow;
+    }
+
+    function addDrawnVector(start, end) {
+      const vec = new THREE.Vector3().subVectors(end, start);
+      const len = vec.length();
+      if (len < 0.25) return;
+      const colors = [0xfbbf24, 0x38bdf8, 0xf472b6, 0x34d399, 0xa78bfa];
+      const color = colors[state.vectors.length % colors.length];
+      const arrow = createVectorArrow(start, end, color);
+      if (!arrow) return;
+
+      state.vectors.push({ start: start.clone(), end: end.clone(), vec, len, arrow });
+      renderVectorsList();
+      showToast(`بردار جدید رسم شد: (${vec.x.toFixed(1)}, ${vec.y.toFixed(1)}, ${vec.z.toFixed(1)})`);
+    }
+
+    function renderVectorsList() {
+      const list = document.getElementById('vectors-list');
+      if (state.vectors.length === 0) {
+        list.innerHTML = '<p class="text-[10px] text-slate-500">در حالت «رسم محور»، با نیشگون دست یا کشیدن روی صفحه محور رسم کنید.</p>';
+        return;
+      }
+      list.innerHTML = state.vectors.map((v, idx) => `
+        <div class="bg-slate-900/75 rounded-lg px-2 py-1 flex items-center justify-between border border-slate-800">
+          <span class="text-slate-300">محور ${idx + 1}</span>
+          <span class="ltr-num text-amber-300">(${v.vec.x.toFixed(1)}, ${v.vec.y.toFixed(1)}, ${v.vec.z.toFixed(1)}) | L=${v.len.toFixed(2)}</span>
+        </div>
+      `).join('');
+    }
+
+    // =========================================================================
+    // 6. RAYCASTING & INTERACTION HELPERS (SHARED BY HAND + MOUSE/TOUCH)
+    // =========================================================================
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+
+    function screenNormTo3DPlane(nx, ny, planeY = 0) {
+      ndc.x = nx * 2 - 1;
+      ndc.y = -(ny * 2 - 1);
+      raycaster.setFromCamera(ndc, camera);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+      const target = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(plane, target)) {
+        // Snap slightly to 0.5 grid
+        target.x = Math.round(target.x * 2) / 2;
+        target.z = Math.round(target.z * 2) / 2;
+        target.clampLength(0, 6);
+        return target;
+      }
+      return new THREE.Vector3(0, 0, 0);
+    }
+
+    function tryGrabPiece(nx, ny) {
+      if (state.shape === 'tesseract') return false;
+      ndc.x = nx * 2 - 1;
+      ndc.y = -(ny * 2 - 1);
+      raycaster.setFromCamera(ndc, camera);
+      const meshes = currentPieces.map(p => p.mesh);
+      const hits = raycaster.intersectObjects(meshes, false);
+      if (hits.length > 0) {
+        const hit = hits[0];
+        const piece = hit.object.userData.piece;
+        state.grabbedPiece = piece;
+        piece.mesh.material.emissive.setHex(0x224466);
+        const camDir = new THREE.Vector3();
+        camera.getWorldDirection(camDir);
+        state.grabPlane.setFromNormalAndCoplanarPoint(camDir.negate(), hit.point);
+        state.grabOffset.copy(piece.mesh.position).sub(hit.point);
+        return true;
+      }
+      return false;
+    }
+
+    function moveGrabbedPiece(nx, ny) {
+      if (!state.grabbedPiece) return;
+      ndc.x = nx * 2 - 1;
+      ndc.y = -(ny * 2 - 1);
+      raycaster.setFromCamera(ndc, camera);
+      const pt = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(state.grabPlane, pt)) {
+        const desiredPos = pt.add(state.grabOffset);
+        const explodeVec = state.grabbedPiece.normal.clone().multiplyScalar(state.explodeFactor * 2.3);
+        state.grabbedPiece.customOffset.copy(desiredPos).sub(explodeVec);
+        applyPieceOffsets();
+      }
+    }
+
+    function releaseGrabbedPiece() {
+      if (state.grabbedPiece) {
+        state.grabbedPiece.mesh.material.emissive.setHex(0x000000);
+        state.grabbedPiece = null;
+      }
+    }
+
+    // =========================================================================
+    // 7. MOUSE & TOUCH FALLBACK CONTROLS
+    // =========================================================================
+    let pointerDown = false;
+    let lastPointer = { x: 0, y: 0 };
+
+    renderer.domElement.addEventListener('pointerdown', e => {
+      pointerDown = true;
+      lastPointer = { x: e.clientX, y: e.clientY };
+      const nx = e.clientX / window.innerWidth;
+      const ny = e.clientY / window.innerHeight;
+
+      if (state.mode === 'axis') {
+        state.isDrawingVector = true;
+        state.drawStartPoint = new THREE.Vector3(0, 0, 0);
+      } else if (state.mode === 'separate') {
+        tryGrabPiece(nx, ny);
+      }
+    });
+
+    window.addEventListener('pointermove', e => {
+      if (!pointerDown) return;
+      const nx = e.clientX / window.innerWidth;
+      const ny = e.clientY / window.innerHeight;
+
+      if (state.mode === 'axis' && state.isDrawingVector) {
+        const endPt = screenNormTo3DPlane(nx, ny, 0);
+        if (state.previewVectorObj) vectorsGroup.remove(state.previewVectorObj);
+        state.previewVectorObj = createVectorArrow(state.drawStartPoint, endPt, 0x38bdf8);
+      } else if (state.mode === 'separate' && state.grabbedPiece) {
+        moveGrabbedPiece(nx, ny);
+      } else {
+        const dx = e.clientX - lastPointer.x;
+        const dy = e.clientY - lastPointer.y;
+        orbit.theta -= dx * 0.008;
+        orbit.phi -= dy * 0.008;
+        updateCameraOrbit();
+      }
+      lastPointer = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointerup', e => {
+      if (!pointerDown) return;
+      pointerDown = false;
+      const nx = e.clientX / window.innerWidth;
+      const ny = e.clientY / window.innerHeight;
+
+      if (state.mode === 'axis' && state.isDrawingVector) {
+        if (state.previewVectorObj) {
+          vectorsGroup.remove(state.previewVectorObj);
+          state.previewVectorObj = null;
+        }
+        const endPt = screenNormTo3DPlane(nx, ny, 0);
+        addDrawnVector(state.drawStartPoint, endPt);
+        state.isDrawingVector = false;
+      }
+      releaseGrabbedPiece();
+    });
+
+    renderer.domElement.addEventListener('wheel', e => {
+      e.preventDefault();
+      orbit.radius += e.deltaY * 0.005;
+      updateCameraOrbit();
+    }, { passive: false });
+
+    // =========================================================================
+    // 8. MEDIAPIPE HANDS CAMERA TRACKING
+    // =========================================================================
+    const videoEl = document.getElementById('input-video');
+    const overlayCanvas = document.getElementById('hand-overlay');
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const pipWrapper = document.getElementById('pip-wrapper');
+    const handCursorEl = document.getElementById('hand-cursor');
+    const gesturePill = document.getElementById('gesture-pill');
+    const gestureStatusText = document.getElementById('gesture-status-text');
+
+    let mediaStream = null;
+    let handsModel = null;
+    let rafCameraId = null;
+    let prevPinch = false;
+    let lastHandCursor = null;
+
+    const HAND_CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],[0,17]
+    ];
+
+    function dist2D(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function classifyGesture(lm) {
+      const palmSize = dist2D(lm[0], lm[9]) || 0.15;
+      const pinchDist = dist2D(lm[4], lm[8]) / palmSize;
+
+      const indexUp = lm[8].y < lm[6].y;
+      const middleUp = lm[12].y < lm[10].y;
+      const ringUp = lm[16].y < lm[14].y;
+      const pinkyUp = lm[20].y < lm[18].y;
+      const thumbOut = dist2D(lm[4], lm[9]) / palmSize > 0.65;
+
+      const extendedCount = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
+      const spread = dist2D(lm[4], lm[20]) / palmSize;
+
+      if (pinchDist < 0.38) return { type: 'pinch', spread };
+      if (extendedCount >= 4 && thumbOut) return { type: 'palm', spread };
+      if (extendedCount === 0 && !thumbOut) return { type: 'fist', spread };
+      if (indexUp) return { type: 'point', spread };
+      return { type: 'none', spread };
+    }
+
+    function onHandResults(results) {
+      if (!state.cameraActive) return;
+      overlayCanvas.width = videoEl.videoWidth || 320;
+      overlayCanvas.height = videoEl.videoHeight || 240;
+
+      overlayCtx.save();
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      if (state.facingMode === 'user') {
+        overlayCtx.translate(overlayCanvas.width, 0);
+        overlayCtx.scale(-1, 1);
+      }
+      overlayCtx.drawImage(results.image, 0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+        // Draw skeleton
+        overlayCtx.strokeStyle = '#38bdf8';
+        overlayCtx.lineWidth = 2;
+        HAND_CONNECTIONS.forEach(([i, j]) => {
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(lm[i].x * overlayCanvas.width, lm[i].y * overlayCanvas.height);
+          overlayCtx.lineTo(lm[j].x * overlayCanvas.width, lm[j].y * overlayCanvas.height);
+          overlayCtx.stroke();
+        });
+        overlayCtx.fillStyle = '#34d399';
+        lm.forEach(pt => {
+          overlayCtx.beginPath();
+          overlayCtx.arc(pt.x * overlayCanvas.width, pt.y * overlayCanvas.height, 3, 0, Math.PI * 2);
+          overlayCtx.fill();
+        });
+        overlayCtx.restore();
+
+        // Mirror X for front camera
+        const rawX = state.facingMode === 'user' ? (1 - lm[8].x) : lm[8].x;
+        const rawY = lm[8].y;
+        state.smoothX = state.smoothX * 0.65 + rawX * 0.35;
+        state.smoothY = state.smoothY * 0.65 + rawY * 0.35;
+
+        const { type, spread } = classifyGesture(lm);
+        state.gesture = type;
+
+        handCursorEl.style.display = 'block';
+        handCursorEl.style.left = `${state.smoothX * window.innerWidth}px`;
+        handCursorEl.style.top = `${state.smoothY * window.innerHeight}px`;
+        handCursorEl.className = type === 'pinch' ? 'pinching' : (type === 'palm' ? 'palm' : '');
+
+        handleHandInteraction(type, spread);
+      } else {
+        overlayCtx.restore();
+        handCursorEl.style.display = 'none';
+        gesturePill.textContent = 'دستی دیده نمی‌شود';
+        gestureStatusText.textContent = 'دست خود را مقابل دوربین بگیرید';
+        if (prevPinch) {
+          finishPinch();
+          prevPinch = false;
+        }
+        lastHandCursor = null;
+      }
+    }
+
+    function finishPinch() {
+      if (state.mode === 'axis' && state.isDrawingVector) {
+        if (state.previewVectorObj) {
+          vectorsGroup.remove(state.previewVectorObj);
+          state.previewVectorObj = null;
+        }
+        const endPt = screenNormTo3DPlane(state.smoothX, state.smoothY, 0);
+        addDrawnVector(state.drawStartPoint, endPt);
+        state.isDrawingVector = false;
+      }
+      releaseGrabbedPiece();
+    }
+
+    function handleHandInteraction(type, spread) {
+      if (type === 'palm') {
+        gesturePill.textContent = '🖐️ کف دست باز: جداسازی قطعات';
+        gestureStatusText.textContent = 'کف دست باز — جداسازی قطعات شکل';
+        const targetExplode = Math.max(0, Math.min(1, (spread - 1.0) / 1.1));
+        state.explodeFactor = state.explodeFactor * 0.75 + targetExplode * 0.25;
+        document.getElementById('slider-explode').value = Math.round(state.explodeFactor * 100);
+        document.getElementById('explode-val').textContent = `${Math.round(state.explodeFactor * 100)}%`;
+        applyPieceOffsets();
+        if (prevPinch) { finishPinch(); prevPinch = false; }
+      } else if (type === 'fist') {
+        gesturePill.textContent = '✊ مشت بسته: جمع کردن قطعات';
+        gestureStatusText.textContent = 'مشت بسته — جمع کردن تکه‌ها';
+        state.explodeFactor = state.explodeFactor * 0.75;
+        if (state.explodeFactor < 0.02) state.explodeFactor = 0;
+        document.getElementById('slider-explode').value = Math.round(state.explodeFactor * 100);
+        document.getElementById('explode-val').textContent = `${Math.round(state.explodeFactor * 100)}%`;
+        applyPieceOffsets();
+        if (prevPinch) { finishPinch(); prevPinch = false; }
+      } else if (type === 'pinch') {
+        gesturePill.textContent = '🤏 نیشگون: گرفتن / رسم';
+        gestureStatusText.textContent = state.mode === 'axis'
+          ? 'نیشگون — در حال رسم بردار/محور'
+          : (state.mode === 'separate' ? 'نیشگون — جابه‌جایی تکه انتخاب‌شده' : 'نیشگون فعال');
+
+        if (!prevPinch) {
+          if (state.mode === 'axis') {
+            state.isDrawingVector = true;
+            state.drawStartPoint = new THREE.Vector3(0, 0, 0);
+          } else if (state.mode === 'separate') {
+            tryGrabPiece(state.smoothX, state.smoothY);
+          }
+          prevPinch = true;
+        } else {
+          if (state.mode === 'axis' && state.isDrawingVector) {
+            const endPt = screenNormTo3DPlane(state.smoothX, state.smoothY, 0);
+            if (state.previewVectorObj) vectorsGroup.remove(state.previewVectorObj);
+            state.previewVectorObj = createVectorArrow(state.drawStartPoint, endPt, 0x38bdf8);
+          } else if (state.mode === 'separate' && state.grabbedPiece) {
+            moveGrabbedPiece(state.smoothX, state.smoothY);
+          }
+        }
+      } else if (type === 'point') {
+        gesturePill.textContent = '☝️ اشاره: چرخش و هدایت';
+        gestureStatusText.textContent = 'اشاره با انگشت — چرخش صحنه سه‌بعدی';
+        if (prevPinch) { finishPinch(); prevPinch = false; }
+        if (state.mode === 'rotate' && lastHandCursor) {
+          const dx = state.smoothX - lastHandCursor.x;
+          const dy = state.smoothY - lastHandCursor.y;
+          orbit.theta -= dx * 4.0;
+          orbit.phi -= dy * 3.0;
+          updateCameraOrbit();
+        }
+      }
+      lastHandCursor = { x: state.smoothX, y: state.smoothY };
+    }
+
+    function showCameraErrorModal(err) {
+      const titleEl = document.getElementById('cam-modal-title');
+      const descEl = document.getElementById('cam-modal-desc');
+      const tipEl = document.getElementById('cam-modal-tip');
+      const errEl = document.getElementById('cam-modal-err');
+      const inFrame = (window.self !== window.top);
+      const errName = err ? (err.name || 'Error') : 'Error';
+      const errMsg = err ? (err.message || '') : '';
+
+      errEl.textContent = `${errName}${errMsg ? ': ' + errMsg : ''}`;
+      errEl.classList.remove('hidden');
+
+      if (!window.isSecureContext) {
+        titleEl.textContent = 'آدرس امن (HTTPS) لازم است';
+        descEl.textContent = 'مرورگر کروم فقط روی آدرس‌های HTTPS اجازه باز کردن دوربین را می‌دهد (روی فایل لوکال یا HTTP معمولی اجازه نمی‌دهد).';
+        tipEl.innerHTML = '<div class="font-bold text-sky-300">راه‌حل:</div><p>سایت را با آدرس <span class="ltr-num text-emerald-300">https://</span> (مثل GitHub Pages) باز کنید.</p>';
+      } else if (inFrame && (errName === 'NotAllowedError' || errName === 'SecurityError')) {
+        titleEl.textContent = 'دوربین در این پیش‌نمایش مسدود است';
+        descEl.textContent = 'در صفحه پیش‌نمایش اشتراک‌گذاری، کروم اجازه باز کردن دوربین را نمی‌دهد و پنجره تایید نمایش داده نمی‌شود.';
+        tipEl.innerHTML = '<div class="font-bold text-sky-300">برای استفاده از دوربین گوشی:</div><p>فایل سایت را دانلود کرده و مستقیم روی <span class="ltr-num text-emerald-300">GitHub Pages</span> (با نام <span class="ltr-num">index.html</span>) باز کنید.</p>';
+      } else if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+        titleEl.textContent = 'اجازه دوربین در کروم بسته است';
+        descEl.textContent = 'دسترسی دوربین برای این سایت در تنظیمات کروم مسدود شده است، به همین دلیل کروم دوباره سوال نمی‌پرسد.';
+        tipEl.innerHTML = '<div class="font-bold text-sky-300">چطور بازش کنیم؟</div><p>روی آیکون کنار نوار آدرس کروم (قفل یا تنظیمات سایت) بزنید ← <b>Permissions / دسترسی‌ها</b> ← <b>Camera / دوربین</b> را روی <b>Allow</b> بگذارید و سپس دکمه «تلاش مجدد دوربین» را بزنید.</p>';
+      } else {
+        titleEl.textContent = 'خطا در راه‌اندازی دوربین';
+        descEl.textContent = 'دوربین پیدا نشد یا برنامه دیگری در حال استفاده از آن است.';
+        tipEl.innerHTML = '<div class="font-bold text-sky-300">پیشنهاد:</div><p>اگر برنامه دیگری دوربین را باز کرده ببندید و دوباره تلاش کنید، یا با لمس و ماوس ادامه دهید.</p>';
+      }
+      document.getElementById('camera-blocked-modal').classList.remove('hidden');
+    }
+
+    async function startCamera() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error(!window.isSecureContext ? 'InsecureContext: HTTPS required' : 'MediaDevicesUnavailable');
+        }
+        stopCamera();
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: state.facingMode },
+            audio: false
+          });
+        } catch (constraintErr) {
+          if (constraintErr && (constraintErr.name === 'OverconstrainedError' || constraintErr.name === 'NotFoundError')) {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } else {
+            throw constraintErr;
+          }
+        }
+        videoEl.srcObject = mediaStream;
+        await videoEl.play();
+
+        if (!handsModel && typeof Hands !== 'undefined') {
+          handsModel = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+          });
+          handsModel.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.65,
+            minTrackingConfidence: 0.6
+          });
+          handsModel.onResults(onHandResults);
+        }
+
+        state.cameraActive = true;
+        pipWrapper.classList.remove('hidden');
+        document.getElementById('btn-switch-camera').classList.remove('hidden');
+        document.getElementById('cam-btn-label').textContent = 'توقف دوربین';
+        gestureStatusText.textContent = 'دوربین فعال شد — دست خود را نشان دهید';
+
+        const processFrame = async () => {
+          if (!state.cameraActive) return;
+          if (videoEl.readyState >= 2 && handsModel) {
+            try { await handsModel.send({ image: videoEl }); } catch (err) {}
+          }
+          rafCameraId = requestAnimationFrame(processFrame);
+        };
+        rafCameraId = requestAnimationFrame(processFrame);
+      } catch (err) {
+        stopCamera();
+        showCameraErrorModal(err);
+      }
+    }
+
+    function stopCamera() {
+      state.cameraActive = false;
+      if (rafCameraId) cancelAnimationFrame(rafCameraId);
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      pipWrapper.classList.add('hidden');
+      handCursorEl.style.display = 'none';
+      document.getElementById('btn-switch-camera').classList.add('hidden');
+      document.getElementById('cam-btn-label').textContent = 'دوربین روشن';
+      gestureStatusText.textContent = 'حالت لمس / ماوس فعال است';
+    }
+
+    // =========================================================================
+    // 9. UI EVENT BINDINGS
+    // =========================================================================
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.add('hidden'), 2800);
+    }
+
+    document.getElementById('btn-toggle-camera').addEventListener('click', () => {
+      if (state.cameraActive) stopCamera();
+      else startCamera();
+    });
+
+    document.getElementById('btn-switch-camera').addEventListener('click', () => {
+      state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+      showToast(state.facingMode === 'user' ? 'دوربین جلو فعال شد' : 'دوربین پشت فعال شد');
+      if (state.cameraActive) startCamera();
+    });
+
+    document.getElementById('btn-toggle-info').addEventListener('click', () => {
+      state.infoOpen = !state.infoOpen;
+      document.getElementById('math-drawer').classList.toggle('hidden', !state.infoOpen);
+    });
+
+    document.getElementById('btn-toggle-help').addEventListener('click', () => {
+      document.getElementById('help-modal').classList.remove('hidden');
+    });
+    document.getElementById('btn-close-help').addEventListener('click', () => {
+      document.getElementById('help-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-ok-help').addEventListener('click', () => {
+      document.getElementById('help-modal').classList.add('hidden');
+    });
+
+    document.getElementById('btn-retry-camera').addEventListener('click', () => {
+      document.getElementById('camera-blocked-modal').classList.add('hidden');
+      startCamera();
+    });
+    document.getElementById('btn-close-cam-modal').addEventListener('click', () => {
+      document.getElementById('camera-blocked-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-continue-touch').addEventListener('click', () => {
+      document.getElementById('camera-blocked-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-download-html').addEventListener('click', () => {
+      const clone = document.documentElement.cloneNode(true);
+      // Remove runtime-generated Three.js canvas and reset dynamic DOM containers
+      const threeBox = clone.querySelector('#three-container');
+      if (threeBox) threeBox.innerHTML = '';
+      // Remove runtime-injected <style> tags (keep only our app style)
+      clone.querySelectorAll('style:not([data-app-style])').forEach(el => el.remove());
+      // Reset modals, PiP, and cursor to initial hidden state
+      ['#camera-blocked-modal', '#help-modal', '#pip-wrapper', '#toast'].forEach(sel => {
+        const el = clone.querySelector(sel);
+        if (el) el.classList.add('hidden');
+      });
+      const cursor = clone.querySelector('#hand-cursor');
+      if (cursor) cursor.style.display = 'none';
+      const switchBtn = clone.querySelector('#btn-switch-camera');
+      if (switchBtn) switchBtn.classList.add('hidden');
+      const camLabel = clone.querySelector('#cam-btn-label');
+      if (camLabel) camLabel.textContent = 'دوربین روشن';
+
+      const htmlContent = '<!DOCTYPE html>\n' + clone.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'math_hand_studio.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('فایل سالم math_hand_studio.html آماده دانلود شد');
+    });
+
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.mode = btn.dataset.mode;
+        const labels = {
+          rotate: 'حالت چرخش و بررسی سه‌بعدی',
+          axis: 'حالت رسم محور و بردار (نیشگون یا لمس بکشید)',
+          separate: 'حالت جداسازی تکه‌ها (هر وجه را بکشید)'
+        };
+        showToast(labels[state.mode]);
+      });
+    });
+
+    document.querySelectorAll('.shape-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.shape = btn.dataset.shape;
+        buildShape();
+      });
+    });
+
+    document.getElementById('btn-toggle-axes').addEventListener('click', (e) => {
+      state.showAxes = !state.showAxes;
+      axesGroup.visible = state.showAxes;
+      e.currentTarget.classList.toggle('active', state.showAxes);
+    });
+
+    document.getElementById('btn-reset-scene').addEventListener('click', () => {
+      state.explodeFactor = 0;
+      document.getElementById('slider-explode').value = 0;
+      document.getElementById('explode-val').textContent = '0%';
+      currentPieces.forEach(p => p.customOffset.set(0, 0, 0));
+      applyPieceOffsets();
+      orbit.theta = Math.PI / 4;
+      orbit.phi = Math.PI / 3;
+      orbit.radius = 9.0;
+      updateCameraOrbit();
+      showToast('صحنه و قطعات بازنشانی شدند');
+    });
+
+    document.getElementById('slider-explode').addEventListener('input', e => {
+      state.explodeFactor = Number(e.target.value) / 100;
+      document.getElementById('explode-val').textContent = `${e.target.value}%`;
+      applyPieceOffsets();
+    });
+
+    document.getElementById('slider-scale').addEventListener('input', e => {
+      state.scale = Number(e.target.value) / 10;
+      document.getElementById('scale-val').textContent = state.scale.toFixed(1);
+      buildShape();
+    });
+
+    document.getElementById('slider-w').addEventListener('input', e => {
+      const deg = Number(e.target.value);
+      state.wAngle = (deg * Math.PI) / 180;
+      document.getElementById('w-val').textContent = `${deg}°`;
+      updateTesseractGeometry();
+    });
+
+    document.getElementById('btn-clear-vectors').addEventListener('click', () => {
+      while (vectorsGroup.children.length) vectorsGroup.remove(vectorsGroup.children[0]);
+      state.vectors = [];
+      renderVectorsList();
+      showToast('بردارهای رسم‌شده پاک شدند');
+    });
+
+    // =========================================================================
+    // 10. ANIMATION LOOP & RESIZE
+    // =========================================================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (state.mode === 'rotate' && !pointerDown && !state.cameraActive) {
+        shapeGroup.rotation.y += 0.003;
+      }
+      renderer.render(scene, camera);
+    }
+
+    // Initialize safely
+    if (typeof lucide !== 'undefined') {
+      try { lucide.createIcons(); } catch (e) {}
+    }
+    buildShape();
+    animate();
+  </script>
+</body>
+</html>
